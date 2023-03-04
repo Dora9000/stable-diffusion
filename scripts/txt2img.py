@@ -255,10 +255,31 @@ def main():
     # middle block - layers 0, 1, 2,
     # output block - layers 2, 4, 8.
 
-    # input_blocks -> (2), (4), (8)
-    # middle_block -> (0), (1), (2)
-    # output_blocks -> (2), (4), (8)
     model.model.diffusion_model.input_blocks[2].register_forward_hook(get_features('input_blocks_2'))
+    model.model.diffusion_model.input_blocks[4].register_forward_hook(get_features('input_blocks_4'))
+    model.model.diffusion_model.input_blocks[8].register_forward_hook(get_features('input_blocks_8'))
+
+    model.model.diffusion_model.middle_block[0].register_forward_hook(get_features('middle_block_0'))
+    model.model.diffusion_model.middle_block[1].register_forward_hook(get_features('middle_block_1'))
+    model.model.diffusion_model.middle_block[2].register_forward_hook(get_features('middle_block_2'))
+
+    model.model.diffusion_model.output_blocks[2].register_forward_hook(get_features('output_blocks_2'))
+    model.model.diffusion_model.output_blocks[4].register_forward_hook(get_features('output_blocks_4'))
+    model.model.diffusion_model.output_blocks[8].register_forward_hook(get_features('output_blocks_8'))
+
+    # activation - input_blocks_2 -  (2, 320, 64, 64)
+    # activation - input_blocks_4 -  (2, 640, 32, 32)
+    # activation - input_blocks_8 -  (2, 1280, 16, 16)
+    # activation - middle_block_0 -  (2, 1280, 8, 8)
+    # activation - middle_block_1 -  (2, 1280, 8, 8)
+    # activation - middle_block_2 -  (2, 1280, 8, 8)
+    # activation - output_blocks_2 -  (2, 1280, 16, 16)
+    # activation - output_blocks_4 -  (2, 1280, 16, 16)
+    # activation - output_blocks_8 -  (2, 640, 64, 64)
+
+    # we resize activations to match the spatial dimensions of
+    # the input w and concatenate them alongside the channel dimension. The input dimension of the MLP is then the sum
+    # of the number of channels of the selected activations.
 
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir

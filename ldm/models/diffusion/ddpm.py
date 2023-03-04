@@ -1007,8 +1007,20 @@ class LatentDiffusion(DDPM):
 
     def _save_features_and_predict(self, x_noisy, t, cond):
         a = self.model(x_noisy, t, **cond)
-        activations = features['input_blocks_2'].cpu().numpy()
-        print('activation - ', activations.shape)
+
+        for key in (
+            "input_blocks_2",
+            "input_blocks_4",
+            "input_blocks_8",
+            'middle_block_0',
+            'middle_block_1',
+            'middle_block_2',
+            "output_blocks_2",
+            "output_blocks_4",
+            "output_blocks_8"
+        ):
+            activations = features[key].cpu().numpy()
+            print(f'activation - {key} - ', activations.shape)
 
         return a
 
