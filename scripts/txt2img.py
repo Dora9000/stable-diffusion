@@ -1,4 +1,6 @@
 import argparse, os, sys, glob
+from random import randrange
+
 import cv2
 import torch
 import numpy as np
@@ -14,6 +16,7 @@ from pytorch_lightning import seed_everything
 from torch import autocast
 from contextlib import contextmanager, nullcontext
 
+from ldm.models.diffusion.ddpm import get_features
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
@@ -124,7 +127,7 @@ def main():
     parser.add_argument(
         "--ddim_steps",
         type=int,
-        default=50,
+        default=10,
         help="number of ddim sampling steps",
     )
     parser.add_argument(
@@ -151,7 +154,7 @@ def main():
     parser.add_argument(
         "--n_iter",
         type=int,
-        default=2,
+        default=1,
         help="sample this often",
     )
     parser.add_argument(
@@ -181,7 +184,7 @@ def main():
     parser.add_argument(
         "--n_samples",
         type=int,
-        default=3,
+        default=1,
         help="how many samples to produce for each given prompt. A.k.a. batch size",
     )
     parser.add_argument(
@@ -216,7 +219,7 @@ def main():
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
+        default=randrange(1000),
         help="the seed (for reproducible sampling)",
     )
     parser.add_argument(
@@ -246,6 +249,16 @@ def main():
         sampler = PLMSSampler(model)
     else:
         sampler = DDIMSampler(model)
+
+    # The denoising model’s features are taken from 9 different layers across the network:
+    # input block - layers 2, 4, 8,
+    # middle block - layers 0, 1, 2,
+    # output block - layers 2, 4, 8.
+
+    # input_blocks -> (2), (4), (8)
+    # middle_block -> (0), (1), (2)
+    # output_blocks -> (2), (4), (8)
+    model.model.diffusion_model.input_blocks[2].register_forward_hook(get_features('input_blocks_2'))
 
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
@@ -281,9 +294,8 @@ def main():
     with torch.no_grad():
         with precision_scope("cuda"):
             with model.ema_scope():
-                tic = time.time()
                 all_samples = list()
-                for n in trange(opt.n_iter, desc="Sampling"):
+                for _ in trange(opt.n_iter, desc="Sampling"):
                     for prompts in tqdm(data, desc="data"):
                         uc = None
                         if opt.scale != 1.0:

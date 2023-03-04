@@ -32,6 +32,14 @@ __conditioning_keys__ = {'concat': 'c_concat',
                          'adm': 'y'}
 
 
+features = {}
+
+def get_features(name):
+    def hook(model, input, output):
+        features[name] = output.detach()
+    return hook
+
+
 def disabled_train(self, mode=True):
     """Overwrite model.train with this function to make sure train/eval mode
     does not change anymore."""
@@ -985,12 +993,25 @@ class LatentDiffusion(DDPM):
             x_recon = fold(o) / normalization
 
         else:
-            x_recon = self.model(x_noisy, t, **cond)
+            # apply model:
+            x_recon = self._save_features_and_predict(x_noisy, t, cond)
+
+            # print("shape", x_recon.shape)
+
 
         if isinstance(x_recon, tuple) and not return_ids:
             return x_recon[0]
         else:
             return x_recon
+
+
+    def _save_features_and_predict(self, x_noisy, t, cond):
+        a = self.model(x_noisy, t, **cond)
+        activations = features['input_blocks_2'].cpu().numpy()
+        print('activation - ', activations.shape)
+
+        return a
+
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):
         return (extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - pred_xstart) / \

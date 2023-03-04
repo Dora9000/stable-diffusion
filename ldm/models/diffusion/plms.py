@@ -91,7 +91,7 @@ class PLMSSampler(object):
         self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
         # sampling
         C, H, W = shape
-        size = (batch_size, C, H, W)
+        size = (batch_size, C, H, W) # 3,4,64,64
         print(f'Data shape for PLMS sampling is {size}')
 
         samples, intermediates = self.plms_sampling(conditioning, size,
@@ -140,6 +140,7 @@ class PLMSSampler(object):
         old_eps = []
 
         for i, step in enumerate(iterator):
+            print('step ', i)
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
             ts_next = torch.full((b,), time_range[min(i + 1, len(time_range) - 1)], device=device, dtype=torch.long)
@@ -174,6 +175,7 @@ class PLMSSampler(object):
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None):
         b, *_, device = *x.shape, x.device
+
 
         def get_model_output(x, t):
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
