@@ -18,7 +18,8 @@ from tqdm import tqdm
 from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from omegaconf import ListConfig
-
+from torchvision import transforms
+from ldm.models.mlp import mlp_train
 from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from ldm.modules.ema import LitEma
 from ldm.modules.distributions.distributions import normal_kl, DiagonalGaussianDistribution
@@ -897,7 +898,7 @@ class LatentDiffusion(DDPM):
 
         return [rescale_bbox(b) for b in bboxes]
 
-    def apply_model(self, x_noisy, t, cond, return_ids=False):
+    def apply_model(self, x_noisy, t, cond, return_ids=False, guiding_model=None, sketch_target=None):
 
         if isinstance(cond, dict):
             # hybrid case, cond is exptected to be a dict
@@ -994,7 +995,7 @@ class LatentDiffusion(DDPM):
 
         else:
             # apply model:
-            x_recon = self._save_features_and_predict(x_noisy, t, cond)
+            x_recon = self._save_features_and_predict(x_noisy, t, cond, guiding_model=guiding_model, sketch_target=sketch_target)
 
             # print("shape", x_recon.shape)
 
@@ -1005,24 +1006,53 @@ class LatentDiffusion(DDPM):
             return x_recon
 
 
-    def _save_features_and_predict(self, x_noisy, t, cond):
-        a = self.model(x_noisy, t, **cond)
+    def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target):
+        res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
         for key in (
             "input_blocks_2",
-            "input_blocks_4",
-            "input_blocks_8",
-            'middle_block_0',
-            'middle_block_1',
-            'middle_block_2',
-            "output_blocks_2",
-            "output_blocks_4",
-            "output_blocks_8"
+            # "input_blocks_4",
+            # "input_blocks_8",
+            # 'middle_block_0',
+            # 'middle_block_1',
+            # 'middle_block_2',
+            # "output_blocks_2",
+            # "output_blocks_4",
+            # "output_blocks_8",
         ):
             activations = features[key].cpu().numpy()
             print(f'activation - {key} - ', activations.shape)
 
-        return a
+            # a = transforms.Resize(size=(64, 64))(activations)
+            # print(a.shape)
+            # print(a == activations)
+            # print(a[0][0][1][:10])
+            # print(activations[0][0][1][:10])
+
+        #     import torch.nn.functional as nnf
+        # x = torch.rand(5, 1, 44, 44)
+        # out = nnf.interpolate(x, size=(224, 224), mode='bicubic', align_corners=False)
+
+        # activation - input_blocks_2 -  (2, 320, 64, 64)
+        # activation - input_blocks_4 -  (2, 640, 32, 32)
+        # activation - input_blocks_8 -  (2, 1280, 16, 16)
+        # activation - middle_block_0 -  (2, 1280, 8, 8)
+        # activation - middle_block_1 -  (2, 1280, 8, 8)
+        # activation - middle_block_2 -  (2, 1280, 8, 8)
+        # activation - output_blocks_2 -  (2, 1280, 16, 16)
+        # activation - output_blocks_4 -  (2, 1280, 16, 16)
+        # activation - output_blocks_8 -  (2, 640, 64, 64)
+
+        # we resize activations to match the spatial dimensions of
+        # the input w and concatenate them alongside the channel dimension. The input dimension of the MLP is then the sum
+        # of the number of channels of the selected activations.
+
+        # a =
+        print('res - ', res.shape)
+        # _mlp = mlp_train(model=guiding_model, y=sketch_target, X=)
+
+
+        return res
 
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):

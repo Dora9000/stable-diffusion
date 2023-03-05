@@ -15,8 +15,9 @@ import time
 from pytorch_lightning import seed_everything
 from torch import autocast
 from contextlib import contextmanager, nullcontext
-
+from einops import repeat
 from ldm.models.diffusion.ddpm import get_features
+from ldm.models.mlp import MLP
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
@@ -24,6 +25,7 @@ from ldm.models.diffusion.plms import PLMSSampler
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from transformers import AutoFeatureExtractor
 
+from scripts.img2img import load_img
 
 # load safety model
 safety_model_id = "CompVis/stable-diffusion-safety-checker"
@@ -100,6 +102,12 @@ def check_safety(x_image):
 def main():
     parser = argparse.ArgumentParser()
 
+    parser.add_argument(
+        "--init-img",
+        type=str,
+        nargs="?",
+        help="path to the input image"
+    )
     parser.add_argument(
         "--prompt",
         type=str,
@@ -245,10 +253,22 @@ def main():
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
 
-    if opt.plms:
-        sampler = PLMSSampler(model)
-    else:
-        sampler = DDIMSampler(model)
+    # loaded input image of size (375, 393) from inputs/water.jpg
+    # torch.Size([1, 4, 48, 40])
+
+    # loaded input image of size (901, 442) from inputs/test.png
+    # torch.Size([1, 4, 48, 112])
+
+    assert os.path.isfile(opt.init_img)
+    init_image = load_img(opt.init_img).to(device)
+    init_image = repeat(init_image, '1 ... -> b ...', b=opt.n_samples)
+    init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent spac
+
+    guiding_model = MLP()
+
+    # if opt.plms, else: sampler = DDIMSampler(model)
+    sampler = PLMSSampler(model, guiding_model=guiding_model, sketch_target=init_latent)
+
 
     # The denoising model’s features are taken from 9 different layers across the network:
     # input block - layers 2, 4, 8,
@@ -267,19 +287,6 @@ def main():
     model.model.diffusion_model.output_blocks[4].register_forward_hook(get_features('output_blocks_4'))
     model.model.diffusion_model.output_blocks[8].register_forward_hook(get_features('output_blocks_8'))
 
-    # activation - input_blocks_2 -  (2, 320, 64, 64)
-    # activation - input_blocks_4 -  (2, 640, 32, 32)
-    # activation - input_blocks_8 -  (2, 1280, 16, 16)
-    # activation - middle_block_0 -  (2, 1280, 8, 8)
-    # activation - middle_block_1 -  (2, 1280, 8, 8)
-    # activation - middle_block_2 -  (2, 1280, 8, 8)
-    # activation - output_blocks_2 -  (2, 1280, 16, 16)
-    # activation - output_blocks_4 -  (2, 1280, 16, 16)
-    # activation - output_blocks_8 -  (2, 640, 64, 64)
-
-    # we resize activations to match the spatial dimensions of
-    # the input w and concatenate them alongside the channel dimension. The input dimension of the MLP is then the sum
-    # of the number of channels of the selected activations.
 
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
@@ -333,7 +340,9 @@ def main():
                                                          unconditional_guidance_scale=opt.scale,
                                                          unconditional_conditioning=uc,
                                                          eta=opt.ddim_eta,
-                                                         x_T=start_code)
+                                                         x_T=start_code,
+                                                         is_train=False,
+                                                         sketch_img=init_latent)
 
                         x_samples_ddim = model.decode_first_stage(samples_ddim)
                         x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)

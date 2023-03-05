@@ -9,9 +9,11 @@ from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, mak
 
 
 class PLMSSampler(object):
-    def __init__(self, model, schedule="linear", **kwargs):
+    def __init__(self, model, guiding_model=None, sketch_target=None, schedule="linear", **kwargs):
         super().__init__()
         self.model = model
+        self.guiding_model = guiding_model
+        self.sketch_target = sketch_target
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
 
@@ -76,6 +78,8 @@ class PLMSSampler(object):
                log_every_t=100,
                unconditional_guidance_scale=1.,
                unconditional_conditioning=None,
+               is_train=False,
+               sketch_img=None,
                # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                **kwargs
                ):
@@ -184,7 +188,7 @@ class PLMSSampler(object):
                 x_in = torch.cat([x] * 2)
                 t_in = torch.cat([t] * 2)
                 c_in = torch.cat([unconditional_conditioning, c])
-                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
+                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in, guiding_model=self.guiding_model, sketch_target=self.sketch_target).chunk(2)
                 e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
 
             if score_corrector is not None:
