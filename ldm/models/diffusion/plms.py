@@ -13,7 +13,7 @@ class PLMSSampler(object):
         super().__init__()
         self.model = model
         self.guiding_model = guiding_model
-        self.sketch_target = sketch_target
+        # self.sketch_target = sketch_target
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
 
@@ -78,8 +78,8 @@ class PLMSSampler(object):
                log_every_t=100,
                unconditional_guidance_scale=1.,
                unconditional_conditioning=None,
-               is_train=False,
                sketch_img=None,
+               orig=None,
                # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                **kwargs
                ):
@@ -96,7 +96,7 @@ class PLMSSampler(object):
         # sampling
         C, H, W = shape
         size = (batch_size, C, H, W) # 3,4,64,64
-        print(f'Data shape for PLMS sampling is {size}')
+        # print(f'Data shape for PLMS sampling is {size}')
 
         samples, intermediates = self.plms_sampling(conditioning, size,
                                                     callback=callback,
@@ -112,6 +112,8 @@ class PLMSSampler(object):
                                                     log_every_t=log_every_t,
                                                     unconditional_guidance_scale=unconditional_guidance_scale,
                                                     unconditional_conditioning=unconditional_conditioning,
+                                                    sketch_img=sketch_img,
+                                                    orig=orig,
                                                     )
         return samples, intermediates
 
@@ -121,7 +123,7 @@ class PLMSSampler(object):
                       callback=None, timesteps=None, quantize_denoised=False,
                       mask=None, x0=None, img_callback=None, log_every_t=100,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                      unconditional_guidance_scale=1., unconditional_conditioning=None,):
+                      unconditional_guidance_scale=1., unconditional_conditioning=None, sketch_img=None, orig=None):
         device = self.model.betas.device
         b = shape[0]
         if x_T is None:
@@ -138,13 +140,13 @@ class PLMSSampler(object):
         intermediates = {'x_inter': [img], 'pred_x0': [img]}
         time_range = list(reversed(range(0,timesteps))) if ddim_use_original_steps else np.flip(timesteps)
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
-        print(f"Running PLMS Sampling with {total_steps} timesteps")
+        # print(f"Running PLMS Sampling with {total_steps} timesteps")
 
-        iterator = tqdm(time_range, desc='PLMS Sampler', total=total_steps)
+        # iterator = tqdm(time_range, desc='PLMS Sampler', total=total_steps)
         old_eps = []
 
-        for i, step in enumerate(iterator):
-            print('step ', i)
+        for i, step in enumerate(time_range):
+            # print('step ', i)
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
             ts_next = torch.full((b,), time_range[min(i + 1, len(time_range) - 1)], device=device, dtype=torch.long)
@@ -160,7 +162,9 @@ class PLMSSampler(object):
                                       corrector_kwargs=corrector_kwargs,
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning,
-                                      old_eps=old_eps, t_next=ts_next)
+                                      old_eps=old_eps, t_next=ts_next,
+                                      sketch_img=sketch_img,
+                                      orig=orig)
             old_eps.append(e_t)
             if len(old_eps) >= 4:
                 old_eps.pop(0)
@@ -176,7 +180,7 @@ class PLMSSampler(object):
     @torch.no_grad()
     def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                      unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None):
+                      unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None, sketch_img=None, orig=None):
         b, *_, device = *x.shape, x.device
 
 
@@ -187,7 +191,7 @@ class PLMSSampler(object):
                 x_in = torch.cat([x] * 2)
                 t_in = torch.cat([t] * 2)
                 c_in = torch.cat([unconditional_conditioning, c])
-                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in, guiding_model=self.guiding_model, sketch_target=self.sketch_target).chunk(2)
+                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in, guiding_model=self.guiding_model, sketch_target=sketch_img, orig=orig).chunk(2)
                 e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
 
             if score_corrector is not None:
@@ -238,12 +242,12 @@ class PLMSSampler(object):
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)
 
-        latent_model_input = x
-        gradient = self.model.lgp_grad
-        edge_guidance_scale = 1.6 # betta
-
-        alpha = (torch.linalg.norm(latent_model_input[:1] - x_prev)) / (torch.linalg.norm(gradient))
-        alpha = alpha * edge_guidance_scale
-        x_prev = x_prev - alpha * gradient
+        # latent_model_input = x
+        # gradient = self.model.lgp_grad
+        # edge_guidance_scale = 1.6 # betta
+        #
+        # alpha = (torch.linalg.norm(latent_model_input[:1] - x_prev)) / (torch.linalg.norm(gradient))
+        # alpha = alpha * edge_guidance_scale
+        # x_prev = x_prev - alpha * gradient
 
         return x_prev, pred_x0, e_t

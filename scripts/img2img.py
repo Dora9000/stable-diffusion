@@ -47,6 +47,7 @@ def load_model_from_config(config, ckpt, verbose=False):
 
 def load_img(path):
     image = Image.open(path).convert("RGB")
+    image = image.resize((512, 512))
     w, h = image.size
     print(f"loaded input image of size ({w}, {h}) from {path}")
     w, h = map(lambda x: x - x % 64, (w, h))  # resize to integer multiple of 32

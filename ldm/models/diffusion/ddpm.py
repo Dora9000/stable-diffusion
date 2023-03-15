@@ -900,7 +900,7 @@ class LatentDiffusion(DDPM):
 
         return [rescale_bbox(b) for b in bboxes]
 
-    def apply_model(self, x_noisy, t, cond, return_ids=False, guiding_model=None, sketch_target=None):
+    def apply_model(self, x_noisy, t, cond, return_ids=False, guiding_model=None, sketch_target=None, orig=None):
 
         if isinstance(cond, dict):
             # hybrid case, cond is exptected to be a dict
@@ -997,7 +997,7 @@ class LatentDiffusion(DDPM):
 
         else:
             # apply model:
-            x_recon = self._save_features_and_predict(x_noisy, t, cond, guiding_model=guiding_model, sketch_target=sketch_target)
+            x_recon = self._save_features_and_predict(x_noisy, t, cond, guiding_model=guiding_model, sketch_target=sketch_target, orig=orig)
 
             # print("shape", x_recon.shape)
 
@@ -1008,7 +1008,7 @@ class LatentDiffusion(DDPM):
             return x_recon
 
 
-    def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target):
+    def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target, orig):
 
         res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
@@ -1029,20 +1029,38 @@ class LatentDiffusion(DDPM):
 
         # activations = [activations[0][0], activations[1][0], activations[2][0], activations[3][0], activations[4],
         #                activations[5], activations[6], activations[7]]
-        criterion = nn.MSELoss()
+
 
         with torch.enable_grad():
-            sketch_target = sketch_target.detach().requires_grad_(requires_grad=True)
-            latents = res.detach().requires_grad_(requires_grad=True)
+            sketch_target = sketch_target.detach().requires_grad_(requires_grad=False)
+            latents = res.detach().requires_grad_(requires_grad=False)
             features = resize_and_concatenate(activations, latents)
+
+            guiding_model.train()
+
+            criterion = nn.MSELoss()
+
+            guiding_model.optimizer.zero_grad()
+
             pred_edge_map = guiding_model(features, x_noisy-res)
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
-            pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
 
-            sim = criterion(pred_edge_map, sketch_target)
-            gradient = torch.autograd.grad(sim, sketch_target)[0]
+            # sketch_target = sketch_target.transpose(1, 3).flatten(start_dim=0, end_dim=3)
 
-        self.model.lgp_grad = gradient
+            loss = criterion(pred_edge_map, sketch_target)
+            loss.backward()
+            guiding_model.optimizer.step()
+            guiding_model.loss.append(loss.item())
+
+            guiding_model.eval()
+
+
+            # pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
+
+        #     sim = criterion(pred_edge_map, sketch_target)
+        #     gradient = torch.autograd.grad(sim, sketch_target)[0]
+        #
+        # self.model.lgp_grad = gradient
 
         return res
 

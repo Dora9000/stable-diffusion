@@ -18,6 +18,7 @@ from contextlib import contextmanager, nullcontext
 from einops import repeat
 from ldm.models.diffusion.ddpm import get_features
 from ldm.models.latent_guidance_predictor import latent_guidance_predictor
+from ldm.models.lgp_train import LGPDataset
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
@@ -259,20 +260,20 @@ def main():
     # loaded input image of size (901, 442) from inputs/test.png
     # torch.Size([1, 4, 48, 112])
 
-    LGP_path = "models/lgp/model.pt"
+    # model_path = "models/lgp/model.pt"
+    model_path = "/workspace/stable-diffusion/models/lgp/my_model/model" + '.pt'
 
-    assert os.path.isfile(opt.init_img)
-    init_image = load_img(opt.init_img).to(device)
-    init_image = repeat(init_image, '1 ... -> b ...', b=opt.n_samples)
-    init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent spac
+    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=9320, num_encodings=9).to(device)  # 7080
+    # guiding_model.init_weights()
 
-    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=7080, num_encodings=9).to(device)  # 9320
-    checkpoint = torch.load(LGP_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device)
     guiding_model.load_state_dict(checkpoint['model_state_dict'])
+    guiding_model.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
     guiding_model.eval()
 
     # if opt.plms, else: sampler = DDIMSampler(model)
-    sampler = PLMSSampler(model, guiding_model=guiding_model, sketch_target=init_latent)
+    sampler = PLMSSampler(model, guiding_model=guiding_model)
 
 
     # The denoising model’s features are taken from 9 different layers across the network:
@@ -303,16 +304,7 @@ def main():
 
     batch_size = opt.n_samples
     n_rows = opt.n_rows if opt.n_rows > 0 else batch_size
-    if not opt.from_file:
-        prompt = opt.prompt
-        assert prompt is not None
-        data = [batch_size * [prompt]]
 
-    else:
-        print(f"reading prompts from {opt.from_file}")
-        with open(opt.from_file, "r") as f:
-            data = f.read().splitlines()
-            data = list(chunk(data, batch_size))
 
     sample_path = os.path.join(outpath, "samples")
     os.makedirs(sample_path, exist_ok=True)
@@ -323,65 +315,106 @@ def main():
     if opt.fixed_code:
         start_code = torch.randn([opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device=device)
 
-    precision_scope = autocast if opt.precision=="autocast" else nullcontext
-    with torch.no_grad():
-        with precision_scope("cuda"):
-            with model.ema_scope():
-                all_samples = list()
-                for _ in trange(opt.n_iter, desc="Sampling"):
-                    for prompts in tqdm(data, desc="data"):
-                        uc = None
-                        if opt.scale != 1.0:
-                            uc = model.get_learned_conditioning(batch_size * [""])
-                        if isinstance(prompts, tuple):
-                            prompts = list(prompts)
-                        c = model.get_learned_conditioning(prompts)
-                        shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
-                        samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
-                                                         conditioning=c,
-                                                         batch_size=opt.n_samples,
-                                                         shape=shape,
-                                                         verbose=False,
-                                                         unconditional_guidance_scale=opt.scale,
-                                                         unconditional_conditioning=uc,
-                                                         eta=opt.ddim_eta,
-                                                         x_T=start_code,
-                                                         is_train=False,
-                                                         sketch_img=init_latent)
+    from torch.utils.data import Dataset, DataLoader
 
-                        x_samples_ddim = model.decode_first_stage(samples_ddim)
-                        x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
-                        x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
 
-                        x_checked_image, has_nsfw_concept = check_safety(x_samples_ddim)
 
-                        x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
+    dataset = LGPDataset(dataset_dir="/workspace/dataset/imagenet_images/", edge_maps_dir="/workspace/dataset/cleared/")
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
-                        if not opt.skip_save:
-                            for x_sample in x_checked_image_torch:
-                                x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-                                img = Image.fromarray(x_sample.astype(np.uint8))
-                                img = put_watermark(img, wm_encoder)
-                                img.save(os.path.join(sample_path, f"{base_count:05}.png"))
-                                base_count += 1
+    ii = 0
 
-                        if not opt.skip_grid:
-                            all_samples.append(x_checked_image_torch)
+    for image_path, edge_map_path, prompt in iter(dataloader):
 
-                if not opt.skip_grid:
-                    # additionally, save as grid
-                    grid = torch.stack(all_samples, 0)
-                    grid = rearrange(grid, 'n b c h w -> (n b) c h w')
-                    grid = make_grid(grid, nrow=n_rows)
+        image_path, *_ = image_path
+        edge_map_path, *_ = edge_map_path
+        prompt, *_ = prompt
 
-                    # to image
-                    grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
-                    img = Image.fromarray(grid.astype(np.uint8))
-                    img = put_watermark(img, wm_encoder)
-                    img.save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
-                    grid_count += 1
+        ii += 1
 
-                toc = time.time()
+        init_image = load_img(image_path).to(device)
+        init_image = repeat(init_image, '1 ... -> b ...', b=opt.n_samples)
+        init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent spac
+
+        edge_image = load_img(edge_map_path).to(device)
+        edge_image = repeat(edge_image, '1 ... -> b ...', b=opt.n_samples)
+        edge_latent = model.get_first_stage_encoding(model.encode_first_stage(edge_image))  # move to latent spac
+
+        data = [batch_size * [prompt]]
+
+        precision_scope = autocast if opt.precision=="autocast" else nullcontext
+
+        for batch_i in range(5):
+            with torch.no_grad():
+                with precision_scope("cuda"):
+                    with model.ema_scope():
+                        # all_samples = list()
+                        for _ in range(opt.n_iter):
+                            for prompts in data:
+                                uc = None
+                                if opt.scale != 1.0:
+                                    uc = model.get_learned_conditioning(batch_size * [""])
+                                if isinstance(prompts, tuple):
+                                    prompts = list(prompts)
+                                c = model.get_learned_conditioning(prompts)
+                                shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
+                                samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
+                                                                 conditioning=c,
+                                                                 batch_size=opt.n_samples,
+                                                                 shape=shape,
+                                                                 verbose=False,
+                                                                 unconditional_guidance_scale=opt.scale,
+                                                                 unconditional_conditioning=uc,
+                                                                 eta=opt.ddim_eta,
+                                                                 x_T=start_code,
+                                                                 sketch_img=edge_latent,
+                                                                 orig=init_latent)
+                                xs = sampler.guiding_model.loss
+                                print(sum(xs) / len(xs))
+                                sampler.guiding_model.loss = []
+                    #         x_samples_ddim = model.decode_first_stage(samples_ddim)
+                    #         x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+                    #         x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).numpy()
+                    #
+                    #         x_checked_image, has_nsfw_concept = check_safety(x_samples_ddim)
+                    #
+                    #         x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
+                    #
+                    #         if not opt.skip_save:
+                    #             for x_sample in x_checked_image_torch:
+                    #                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                    #                 img = Image.fromarray(x_sample.astype(np.uint8))
+                    #                 img = put_watermark(img, wm_encoder)
+                    #                 img.save(os.path.join(sample_path, f"{base_count:05}.png"))
+                    #                 base_count += 1
+                    #
+                    #         if not opt.skip_grid:
+                    #             all_samples.append(x_checked_image_torch)
+                    #
+                    # if not opt.skip_grid:
+                    #     # additionally, save as grid
+                    #     grid = torch.stack(all_samples, 0)
+                    #     grid = rearrange(grid, 'n b c h w -> (n b) c h w')
+                    #     grid = make_grid(grid, nrow=n_rows)
+                    #
+                    #     # to image
+                    #     grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
+                    #     img = Image.fromarray(grid.astype(np.uint8))
+                    #     img = put_watermark(img, wm_encoder)
+                    #     img.save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
+                    #     grid_count += 1
+                    #
+                    # toc = time.time()
+
+        if ii % 4 == 0:
+            print(f'============== step {ii} ================= ')
+
+            print('saving to:', model_path)
+            torch.save({
+                'model_state_dict': sampler.guiding_model.state_dict(),
+                'optimizer_state_dict': sampler.guiding_model.optimizer.state_dict(),
+                # 'loss': loss,
+            }, model_path)
 
     print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
           f" \nEnjoy.")

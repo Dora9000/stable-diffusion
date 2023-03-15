@@ -25,6 +25,10 @@ class latent_guidance_predictor(nn.Module):
             nn.Linear(64, output_dim)
         )
 
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+        self.loss = []
+
+
     def forward(self, x, t):
         # Concatenate input pixels with noise level t and positional encodings
         _t = t.transpose(1,3)[:1]
@@ -37,21 +41,28 @@ class latent_guidance_predictor(nn.Module):
         return self.layers(x)
 
 
+    def init_weights(self, init_type='normal', gain=0.02):
+        def init_func(m):
+            classname = m.__class__.__name__
+            if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+                if init_type == 'normal':
+                    nn.init.normal_(m.weight.data, 0.0, gain)
+                elif init_type == 'xavier':
+                    nn.init.xavier_normal_(m.weight.data, gain=gain)
+                elif init_type == 'kaiming':
+                    nn.init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+                elif init_type == 'orthogonal':
+                    nn.init.orthogonal_(m.weight.data, gain=gain)
 
-# def save_tensors(module: nn.Module, features, name: str):
-#     """ Process and save activations in the module. """
-#     if type(features) in [list, tuple]:
-#         features = [f.detach().float() for f in features if f is not None and isinstance(f, torch.Tensor)]
-#         setattr(module, name, features)
-#     elif isinstance(features, dict):
-#         features = {k: f.detach().float() for k, f in features.items()}
-#         setattr(module, name, features)
-#     else:
-#         setattr(module, name, features.detach().float())
-#
-# def save_out_hook(self, inp, out):
-#     save_tensors(self, out, 'activations')
-#     return out
+                if hasattr(m, 'bias') and m.bias is not None:
+                    nn.init.constant_(m.bias.data, 0.0)
+
+            elif classname.find('BatchNorm2d') != -1:
+                nn.init.normal_(m.weight.data, 1.0, gain)
+                nn.init.constant_(m.bias.data, 0.0)
+
+        self.apply(init_func)
+
 
 def resize_and_concatenate(activations: List[torch.Tensor], reference):
     assert all([isinstance(acts, torch.Tensor) for acts in activations])
@@ -82,32 +93,3 @@ def resize_and_concatenate(activations: List[torch.Tensor], reference):
 
     # torch.Size([1, 64, 64, 9280])
     return a
-
-# def grad(pred_map, target):
-#     with torch.enable_grad():
-#         diff = pred_map - target
-#         d = diff.detach().requires_grad_()
-#         ((torch.linalg.vector_norm(d))**2).backward()
-#
-#     return d.grad
-
-
-# def mlp_train(model, X, y):
-#     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-#     loss_fn = nn.CrossEntropyLoss()
-#
-#     for epoch in range(epochs := 300):
-#         model.train()
-#
-#         optimizer.zero_grad()
-#
-#         outputs = model(X)
-#         loss = loss_fn(outputs, y)
-#         loss.backward()
-#         optimizer.step()
-#
-#         print('train_loss', loss.item())
-#
-#         model.eval()
-#
-#     return model
