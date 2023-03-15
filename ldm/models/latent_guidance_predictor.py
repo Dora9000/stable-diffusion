@@ -83,13 +83,13 @@ def resize_and_concatenate(activations: List[torch.Tensor], reference):
     # torch.Size([1, 64, 64, 9280])
     return a
 
-# def grad(pred_map, target):
-#     with torch.enable_grad():
-#         diff = pred_map - target
-#         d = diff.detach().requires_grad_()
-#         ((torch.linalg.vector_norm(d))**2).backward()
-#
-#     return d.grad
+def grad(pred_map, target):
+    with torch.enable_grad():
+        diff = pred_map - target
+        d = diff.detach().requires_grad_()
+        ((torch.linalg.vector_norm(d))**2).backward()
+
+    return d.grad
 
 
 # def mlp_train(model, X, y):

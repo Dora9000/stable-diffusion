@@ -109,7 +109,7 @@ class PLMSSampler(object):
                                                     score_corrector=score_corrector,
                                                     corrector_kwargs=corrector_kwargs,
                                                     x_T=x_T,
-                                                    log_every_t=log_every_t,
+                                                    log_every_t=1,
                                                     unconditional_guidance_scale=unconditional_guidance_scale,
                                                     unconditional_conditioning=unconditional_conditioning,
                                                     )
@@ -160,7 +160,7 @@ class PLMSSampler(object):
                                       corrector_kwargs=corrector_kwargs,
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning,
-                                      old_eps=old_eps, t_next=ts_next)
+                                      old_eps=old_eps, t_next=ts_next, with_guidance=i < (total_steps // 2))
             old_eps.append(e_t)
             if len(old_eps) >= 4:
                 old_eps.pop(0)
@@ -176,25 +176,29 @@ class PLMSSampler(object):
     @torch.no_grad()
     def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                      unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None):
+                      unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None, with_guidance=False):
         b, *_, device = *x.shape, x.device
 
 
-        def get_model_output(x, t):
+        def get_model_output(x, t, with_grad=False):
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
                 e_t = self.model.apply_model(x, t, c)
             else:
                 x_in = torch.cat([x] * 2)
                 t_in = torch.cat([t] * 2)
                 c_in = torch.cat([unconditional_conditioning, c])
-                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in, guiding_model=self.guiding_model, sketch_target=self.sketch_target).chunk(2)
+                _e, _grad = self.model.apply_model(x_in, t_in, c_in, guiding_model=self.guiding_model, sketch_target=self.sketch_target)
+                e_t_uncond, e_t = _e.chunk(2)
                 e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
 
             if score_corrector is not None:
                 assert self.model.parameterization == "eps"
                 e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)
 
-            return e_t
+            if with_grad:
+                return e_t, _grad
+            else:
+                return e_t
 
         alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
         alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
@@ -220,7 +224,8 @@ class PLMSSampler(object):
             x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise
             return x_prev, pred_x0
 
-        e_t = get_model_output(x, t)
+        e_t, _grad = get_model_output(x, t, with_grad=True)
+
         if len(old_eps) == 0:
             # Pseudo Improved Euler (2nd order)
             x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
@@ -238,12 +243,13 @@ class PLMSSampler(object):
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)
 
-        latent_model_input = x
-        gradient = self.model.lgp_grad
-        edge_guidance_scale = 1.6 # betta
-
-        alpha = (torch.linalg.norm(latent_model_input[:1] - x_prev)) / (torch.linalg.norm(gradient))
-        alpha = alpha * edge_guidance_scale
-        x_prev = x_prev - alpha * gradient
+        # if with_guidance:
+        #     latent_model_input = x
+        #     gradient = _grad
+        #     edge_guidance_scale = 1.0 # betta
+        #
+        #     alpha = (torch.linalg.norm(latent_model_input[:1] - x_prev)) / (torch.linalg.norm(gradient))
+        #     alpha = alpha * edge_guidance_scale
+        #     x_prev = x_prev - alpha * gradient
 
         return x_prev, pred_x0, e_t

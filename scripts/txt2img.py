@@ -96,7 +96,7 @@ def check_safety(x_image):
     for i in range(len(has_nsfw_concept)):
         if has_nsfw_concept[i]:
             x_checked_image[i] = load_replacement(x_checked_image[i])
-    return x_checked_image, has_nsfw_concept
+    return x_checked_image, False
 
 
 def main():
@@ -259,14 +259,14 @@ def main():
     # loaded input image of size (901, 442) from inputs/test.png
     # torch.Size([1, 4, 48, 112])
 
-    LGP_path = "models/lgp/model.pt"
+    LGP_path = "/workspace/stable-diffusion/models/lgp/my_model/model.pt"
 
     assert os.path.isfile(opt.init_img)
     init_image = load_img(opt.init_img).to(device)
     init_image = repeat(init_image, '1 ... -> b ...', b=opt.n_samples)
     init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent spac
 
-    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=7080, num_encodings=9).to(device)  # 9320
+    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=9320, num_encodings=9).to(device)
     checkpoint = torch.load(LGP_path, map_location=device)
     guiding_model.load_state_dict(checkpoint['model_state_dict'])
     guiding_model.eval()
