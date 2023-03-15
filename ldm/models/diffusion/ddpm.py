@@ -19,7 +19,8 @@ from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from omegaconf import ListConfig
 from torchvision import transforms
-from ldm.models.mlp import mlp_train
+
+from ldm.models.latent_guidance_predictor import resize_and_concatenate
 from ldm.util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from ldm.modules.ema import LitEma
 from ldm.modules.distributions.distributions import normal_kl, DiagonalGaussianDistribution
@@ -33,11 +34,11 @@ __conditioning_keys__ = {'concat': 'c_concat',
                          'adm': 'y'}
 
 
-features = {}
+global_hooks_map = {}
 
 def get_features(name):
     def hook(model, input, output):
-        features[name] = output.detach()
+        global_hooks_map[name] = output.detach()
     return hook
 
 
@@ -1009,48 +1010,37 @@ class LatentDiffusion(DDPM):
     def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target):
         res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
+        activations = []
+
         for key in (
             "input_blocks_2",
-            # "input_blocks_4",
-            # "input_blocks_8",
-            # 'middle_block_0',
-            # 'middle_block_1',
-            # 'middle_block_2',
-            # "output_blocks_2",
-            # "output_blocks_4",
-            # "output_blocks_8",
+            "input_blocks_4",
+            "input_blocks_8",
+            'middle_block_0',
+            'middle_block_1',
+            'middle_block_2',
+            "output_blocks_2",
+            "output_blocks_4",
+            "output_blocks_8",
         ):
-            activations = features[key].cpu().numpy()
-            print(f'activation - {key} - ', activations.shape)
+            activations.append(global_hooks_map[key].cpu().numpy())
 
-            # a = transforms.Resize(size=(64, 64))(activations)
-            # print(a.shape)
-            # print(a == activations)
-            # print(a[0][0][1][:10])
-            # print(activations[0][0][1][:10])
+        # activations = [activations[0][0], activations[1][0], activations[2][0], activations[3][0], activations[4],
+        #                activations[5], activations[6], activations[7]]
+        criterion = nn.MSELoss()
 
-        #     import torch.nn.functional as nnf
-        # x = torch.rand(5, 1, 44, 44)
-        # out = nnf.interpolate(x, size=(224, 224), mode='bicubic', align_corners=False)
+        with torch.enable_grad():
+            sketch_target = sketch_target.detach().requires_grad_(requires_grad=True)
+            latents = res.detach().requires_grad_(requires_grad=True)
+            features = resize_and_concatenate(activations, latents)
+            pred_edge_map = guiding_model(features, latents)
+            pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
+            pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
 
-        # activation - input_blocks_2 -  (2, 320, 64, 64)
-        # activation - input_blocks_4 -  (2, 640, 32, 32)
-        # activation - input_blocks_8 -  (2, 1280, 16, 16)
-        # activation - middle_block_0 -  (2, 1280, 8, 8)
-        # activation - middle_block_1 -  (2, 1280, 8, 8)
-        # activation - middle_block_2 -  (2, 1280, 8, 8)
-        # activation - output_blocks_2 -  (2, 1280, 16, 16)
-        # activation - output_blocks_4 -  (2, 1280, 16, 16)
-        # activation - output_blocks_8 -  (2, 640, 64, 64)
+            sim = criterion(pred_edge_map, sketch_target)
+            gradient = torch.autograd.grad(sim, sketch_target)[0]
 
-        # we resize activations to match the spatial dimensions of
-        # the input w and concatenate them alongside the channel dimension. The input dimension of the MLP is then the sum
-        # of the number of channels of the selected activations.
-
-        # a =
-        print('res - ', res.shape)
-        # _mlp = mlp_train(model=guiding_model, y=sketch_target, X=)
-
+        self.model.lgp_grad = gradient
 
         return res
 

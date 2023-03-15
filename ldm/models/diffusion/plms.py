@@ -154,14 +154,13 @@ class PLMSSampler(object):
                 img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
                 img = img_orig * mask + (1. - mask) * img
 
-            outs = self.p_sample_plms(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            img, pred_x0, e_t = self.p_sample_plms(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
                                       quantize_denoised=quantize_denoised, temperature=temperature,
                                       noise_dropout=noise_dropout, score_corrector=score_corrector,
                                       corrector_kwargs=corrector_kwargs,
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning,
                                       old_eps=old_eps, t_next=ts_next)
-            img, pred_x0, e_t = outs
             old_eps.append(e_t)
             if len(old_eps) >= 4:
                 old_eps.pop(0)
@@ -238,5 +237,13 @@ class PLMSSampler(object):
             e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)
+
+        latent_model_input = x
+        gradient = self.model.lgp_grad
+        edge_guidance_scale = 1.6 # betta
+
+        alpha = (torch.linalg.norm(latent_model_input[:1] - x_prev)) / (torch.linalg.norm(gradient))
+        alpha = alpha * edge_guidance_scale
+        x_prev = x_prev - alpha * gradient
 
         return x_prev, pred_x0, e_t

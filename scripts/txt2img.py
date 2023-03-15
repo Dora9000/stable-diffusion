@@ -17,7 +17,7 @@ from torch import autocast
 from contextlib import contextmanager, nullcontext
 from einops import repeat
 from ldm.models.diffusion.ddpm import get_features
-from ldm.models.mlp import MLP
+from ldm.models.latent_guidance_predictor import latent_guidance_predictor
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
@@ -259,12 +259,17 @@ def main():
     # loaded input image of size (901, 442) from inputs/test.png
     # torch.Size([1, 4, 48, 112])
 
+    LGP_path = "models/lgp/model.pt"
+
     assert os.path.isfile(opt.init_img)
     init_image = load_img(opt.init_img).to(device)
     init_image = repeat(init_image, '1 ... -> b ...', b=opt.n_samples)
     init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent spac
 
-    guiding_model = MLP()
+    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=7080, num_encodings=9).to(device)
+    checkpoint = torch.load(LGP_path, map_location=device)
+    guiding_model.load_state_dict(checkpoint['model_state_dict'])
+    guiding_model.eval()
 
     # if opt.plms, else: sampler = DDIMSampler(model)
     sampler = PLMSSampler(model, guiding_model=guiding_model, sketch_target=init_latent)
