@@ -266,7 +266,7 @@ def main():
     init_image = repeat(init_image, '1 ... -> b ...', b=opt.n_samples)
     init_latent = model.get_first_stage_encoding(model.encode_first_stage(init_image))  # move to latent spac
 
-    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=7080, num_encodings=9).to(device)
+    guiding_model = latent_guidance_predictor(output_dim=4, input_dim=7080, num_encodings=9).to(device)  # 9320
     checkpoint = torch.load(LGP_path, map_location=device)
     guiding_model.load_state_dict(checkpoint['model_state_dict'])
     guiding_model.eval()

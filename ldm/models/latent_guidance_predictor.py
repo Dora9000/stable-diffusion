@@ -1,5 +1,5 @@
 from typing import List
-
+import math
 import torch
 from torch import nn
 
@@ -27,12 +27,13 @@ class latent_guidance_predictor(nn.Module):
 
     def forward(self, x, t):
         # Concatenate input pixels with noise level t and positional encodings
-        t = t.transpose(1,3)
-        pos_encoding = [torch.sin(2 * math.pi * t * (2 **-l)) for l in range(self.num_encodings)]
+        _t = t.transpose(1,3)[:1]
+        pos_encoding = [torch.sin(2 * math.pi * _t * (2 **-l)) for l in range(self.num_encodings)]
         pos_encoding = torch.cat(pos_encoding, dim=-1)
-        x = torch.cat((x, t, pos_encoding), dim=-1)
+        #torch.Size([1, 64, 64, 9280]) torch.Size([1, 64, 64, 4]) torch.Size([1, 64, 64, 36])
+        x = torch.cat((x, _t, pos_encoding), dim=-1)
         x = x.flatten(start_dim=0, end_dim=2)
-
+        #torch.Size([4096, 9320])
         return self.layers(x)
 
 
@@ -68,12 +69,19 @@ def resize_and_concatenate(activations: List[torch.Tensor], reference):
     # activation - output_blocks_8 -  (2, 640, 64, 64)
 
     for acts in activations:
+        # torch.Size([2, 1280, 8, 8])
         acts = nn.functional.interpolate(acts, size=size, mode="bilinear")
+        # torch.Size([2, 1280, 64, 64])
         acts = acts[:1]
-        acts = acts.transpose(1,3)
+        # torch.Size([1, 1280, 64, 64])
+        acts = acts.transpose(1, 3)
+        # torch.Size([1, 64, 64, 1280])
         resized_activations.append(acts)
 
-    return torch.cat(resized_activations, dim=3)
+    a = torch.cat(resized_activations, dim=3)
+
+    # torch.Size([1, 64, 64, 9280])
+    return a
 
 # def grad(pred_map, target):
 #     with torch.enable_grad():

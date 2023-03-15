@@ -38,7 +38,8 @@ global_hooks_map = {}
 
 def get_features(name):
     def hook(model, input, output):
-        global_hooks_map[name] = output.detach()
+
+        global_hooks_map[name] = output.detach().float()
     return hook
 
 
@@ -1008,6 +1009,7 @@ class LatentDiffusion(DDPM):
 
 
     def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target):
+
         res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
         activations = []
@@ -1023,7 +1025,7 @@ class LatentDiffusion(DDPM):
             "output_blocks_4",
             "output_blocks_8",
         ):
-            activations.append(global_hooks_map[key].cpu().numpy())
+            activations.append(global_hooks_map[key]) #.cpu().numpy()
 
         # activations = [activations[0][0], activations[1][0], activations[2][0], activations[3][0], activations[4],
         #                activations[5], activations[6], activations[7]]
@@ -1033,7 +1035,7 @@ class LatentDiffusion(DDPM):
             sketch_target = sketch_target.detach().requires_grad_(requires_grad=True)
             latents = res.detach().requires_grad_(requires_grad=True)
             features = resize_and_concatenate(activations, latents)
-            pred_edge_map = guiding_model(features, latents)
+            pred_edge_map = guiding_model(features, x_noisy-res)
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
             pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
 
