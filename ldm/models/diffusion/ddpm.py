@@ -1014,7 +1014,7 @@ class LatentDiffusion(DDPM):
 
         new_x_noisy = self.q_sample(x_start=torch.cat([orig] * 2), t=t)
 
-        res = self.model(new_x_noisy, t, **cond)  # torch.Size([2, 4, 64, 64])
+        e_pred = self.model(new_x_noisy, t, **cond)  # torch.Size([2, 4, 64, 64])
 
         activations = []
 
@@ -1033,8 +1033,8 @@ class LatentDiffusion(DDPM):
 
         with torch.enable_grad():
             sketch_target = sketch_target.detach().requires_grad_(requires_grad=False)
-            latents = res.detach().requires_grad_(requires_grad=False)
-            features = resize_and_concatenate(activations, latents)
+            e = e_pred.detach().requires_grad_(requires_grad=False)
+            features = resize_and_concatenate(activations, e)
 
             guiding_model.train()
 
@@ -1042,7 +1042,7 @@ class LatentDiffusion(DDPM):
 
             guiding_model.optimizer.zero_grad()
 
-            pred_edge_map = guiding_model(features, new_x_noisy-res)
+            pred_edge_map = guiding_model(features, e_pred[:1] * 0 + t[0])
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
 
             # sketch_target = sketch_target.transpose(1, 3).flatten(start_dim=0, end_dim=3)
@@ -1054,10 +1054,10 @@ class LatentDiffusion(DDPM):
 
             guiding_model.eval()
 
-            # if guiding_model.is_log:
-            #     guiding_model.is_log = False
-            #     guiding_model.log_img = pred_edge_map
-            #     print(f'-------------- log with t: {t} ---------------')
+            if guiding_model.is_log:
+                guiding_model.is_log = False
+                guiding_model.log_img = pred_edge_map
+                self.ts = t
 
 
             # pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
@@ -1067,7 +1067,7 @@ class LatentDiffusion(DDPM):
         #
         # self.model.lgp_grad = gradient
 
-        return res
+        return e_pred
 
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):

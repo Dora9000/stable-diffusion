@@ -147,8 +147,9 @@ class PLMSSampler(object):
         old_eps = []
 
         steps = list(enumerate(time_range))
+        steps = steps[:len(steps) // 2]
 
-        for _ in range(30):
+        for _ in range(10):
             i, step = random.choice(steps)
 
             index = total_steps - i - 1

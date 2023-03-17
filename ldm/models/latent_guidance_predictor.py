@@ -29,6 +29,7 @@ class latent_guidance_predictor(nn.Module):
         self.loss = []
         self.log_img = None
         self.is_log = False
+        self.ts = 0
 
     def forward(self, x, t):
         # Concatenate input pixels with noise level t and positional encodings

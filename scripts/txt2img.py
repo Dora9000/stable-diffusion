@@ -94,10 +94,10 @@ def check_safety(x_image):
     safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
     x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
     assert x_checked_image.shape[0] == len(has_nsfw_concept)
-    for i in range(len(has_nsfw_concept)):
-        if has_nsfw_concept[i]:
-            x_checked_image[i] = load_replacement(x_checked_image[i])
-    return x_checked_image, has_nsfw_concept
+    # for i in range(len(has_nsfw_concept)):
+    #     if has_nsfw_concept[i]:
+    #         x_checked_image[i] = load_replacement(x_checked_image[i])
+    return x_checked_image, False
 
 
 def main():
@@ -261,7 +261,7 @@ def main():
     # torch.Size([1, 4, 48, 112])
 
     # model_path = "models/lgp/model.pt"
-    model_path = "/workspace/stable-diffusion/models/lgp/my_model/model" + '.pt'
+    model_path = "/workspace/stable-diffusion/models/lgp/my_model/model2" + '.pt'
 
     guiding_model = latent_guidance_predictor(output_dim=4, input_dim=9320, num_encodings=9).to(device)  # 7080
     # guiding_model.init_weights()
@@ -344,6 +344,14 @@ def main():
 
         precision_scope = autocast if opt.precision=="autocast" else nullcontext
 
+        # DEBUG
+        if ii % 50 == 0:
+
+            print(f'============== log {ii} ================= ')
+            sampler.guiding_model.is_log = True
+
+
+
         with torch.no_grad():
             with precision_scope("cuda"):
                 with model.ema_scope():
@@ -416,32 +424,32 @@ def main():
             }, model_path)
 
 
-        # if ii % 50 == 0:
-        #
-        #     print(f'============== log {ii} ================= ')
-        #     sampler.guiding_model.is_log = True
-        #
-        #     if sampler.guiding_model.log_img is not None:
-        #         precision_scope = autocast if opt.precision == "autocast" else nullcontext
-        #
-        #         with torch.no_grad():
-        #             with precision_scope("cuda"):
-        #
-        #                 out = model.decode_first_stage(sampler.guiding_model.log_img)
-        #                 out = torch.clamp((out + 1.0) / 2.0, min=0.0, max=1.0)
-        #                 out = out.cpu().permute(0, 2, 3, 1).numpy()
-        #
-        #                 out, _ = check_safety(out)
-        #
-        #                 out = torch.from_numpy(out).permute(0, 3, 1, 2)
-        #
-        #                 if not opt.skip_save:
-        #                     for x_sample in out:
-        #                         x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-        #                         img = Image.fromarray(x_sample.astype(np.uint8))
-        #                         img = put_watermark(img, wm_encoder)
-        #                         img.save(os.path.join(sample_path, f"{base_count:05}.png"))
-        #                         base_count += 1
+
+
+        # DEBUG
+        if sampler.guiding_model.log_img is not None:
+            precision_scope = autocast if opt.precision == "autocast" else nullcontext
+
+            with torch.no_grad():
+                with precision_scope("cuda"):
+
+                    out = model.decode_first_stage(sampler.guiding_model.log_img)
+                    sampler.guiding_model.log_img = None
+                    out = torch.clamp((out + 1.0) / 2.0, min=0.0, max=1.0)
+                    out = out.cpu().permute(0, 2, 3, 1).numpy()
+
+                    out, _ = check_safety(out)
+
+                    out = torch.from_numpy(out).permute(0, 3, 1, 2)
+
+                    if not opt.skip_save:
+                        for x_sample in out:
+                            x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                            img = Image.fromarray(x_sample.astype(np.uint8))
+                            img = put_watermark(img, wm_encoder)
+                            print(image_path)
+                            img.save(os.path.join(sample_path, f"{base_count:05}-{sampler.guiding_model.ts}.png"))
+                            base_count += 1
 
 
     print(f"Your samples are ready and waiting for you here: \n{outpath} \n"
