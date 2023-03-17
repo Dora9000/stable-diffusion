@@ -304,7 +304,7 @@ class DDPM(pl.LightningModule):
         return loss
 
     def p_losses(self, x_start, t, noise=None):
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        noise = default(noise, lambda: torch.randn_like(x_start))#
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
         model_out = self.model(x_noisy, t)
 
@@ -879,7 +879,7 @@ class LatentDiffusion(DDPM):
         loss = self(x, c)
         return loss
 
-    def forward(self, x, c, *args, **kwargs):
+    def forward(self, x, c, *args, **kwargs):#
         t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
         if self.model.conditioning_key is not None:
             assert c is not None
@@ -1009,6 +1009,12 @@ class LatentDiffusion(DDPM):
 
 
     def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target, orig):
+        # t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
+        # return self.p_losses(x, t, *args, **kwargs)
+
+        # orig_noisy = self.q_sample(x_start=x_noisy, t=t)
+
+        print(orig.shape, x_noisy.shape)
 
         res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
@@ -1085,7 +1091,7 @@ class LatentDiffusion(DDPM):
 
     def p_losses(self, x_start, cond, t, noise=None):
         noise = default(noise, lambda: torch.randn_like(x_start))
-        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
+        x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)#
         model_output = self.apply_model(x_noisy, t, cond)
 
         loss_dict = {}
