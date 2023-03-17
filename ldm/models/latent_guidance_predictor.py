@@ -27,7 +27,8 @@ class latent_guidance_predictor(nn.Module):
 
         self.optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
         self.loss = []
-
+        self.log_img = None
+        self.is_log = False
 
     def forward(self, x, t):
         # Concatenate input pixels with noise level t and positional encodings

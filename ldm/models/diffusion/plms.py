@@ -1,4 +1,5 @@
 """SAMPLING ONLY."""
+import random
 
 import torch
 import numpy as np
@@ -145,16 +146,19 @@ class PLMSSampler(object):
         # iterator = tqdm(time_range, desc='PLMS Sampler', total=total_steps)
         old_eps = []
 
-        for i, step in enumerate(time_range):
-            # print('step ', i)
+        steps = list(enumerate(time_range))
+
+        for _ in range(30):
+            i, step = random.choice(steps)
+
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
             ts_next = torch.full((b,), time_range[min(i + 1, len(time_range) - 1)], device=device, dtype=torch.long)
 
-            if mask is not None:
-                assert x0 is not None
-                img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
-                img = img_orig * mask + (1. - mask) * img
+            # if mask is not None:
+            #     assert x0 is not None
+            #     img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
+            #     img = img_orig * mask + (1. - mask) * img
 
             img, pred_x0, e_t = self.p_sample_plms(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
                                       quantize_denoised=quantize_denoised, temperature=temperature,
@@ -165,15 +169,15 @@ class PLMSSampler(object):
                                       old_eps=old_eps, t_next=ts_next,
                                       sketch_img=sketch_img,
                                       orig=orig)
-            old_eps.append(e_t)
-            if len(old_eps) >= 4:
-                old_eps.pop(0)
-            if callback: callback(i)
-            if img_callback: img_callback(pred_x0, i)
-
-            if index % log_every_t == 0 or index == total_steps - 1:
-                intermediates['x_inter'].append(img)
-                intermediates['pred_x0'].append(pred_x0)
+            # old_eps.append(e_t)
+            # if len(old_eps) >= 4:
+            #     old_eps.pop(0)
+            # if callback: callback(i)
+            # if img_callback: img_callback(pred_x0, i)
+            #
+            # if index % log_every_t == 0 or index == total_steps - 1:
+            #     intermediates['x_inter'].append(img)
+            #     intermediates['pred_x0'].append(pred_x0)
 
         return img, intermediates
 
@@ -225,22 +229,22 @@ class PLMSSampler(object):
             return x_prev, pred_x0
 
         e_t = get_model_output(x, t)
-        if len(old_eps) == 0:
-            # Pseudo Improved Euler (2nd order)
-            x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
-            e_t_next = get_model_output(x_prev, t_next)
-            e_t_prime = (e_t + e_t_next) / 2
-        elif len(old_eps) == 1:
-            # 2nd order Pseudo Linear Multistep (Adams-Bashforth)
-            e_t_prime = (3 * e_t - old_eps[-1]) / 2
-        elif len(old_eps) == 2:
-            # 3nd order Pseudo Linear Multistep (Adams-Bashforth)
-            e_t_prime = (23 * e_t - 16 * old_eps[-1] + 5 * old_eps[-2]) / 12
-        elif len(old_eps) >= 3:
-            # 4nd order Pseudo Linear Multistep (Adams-Bashforth)
-            e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
-
-        x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)
+        # if len(old_eps) == 0:
+        #     # Pseudo Improved Euler (2nd order)
+        #     x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
+        #     e_t_next = get_model_output(x_prev, t_next)
+        #     e_t_prime = (e_t + e_t_next) / 2
+        # elif len(old_eps) == 1:
+        #     # 2nd order Pseudo Linear Multistep (Adams-Bashforth)
+        #     e_t_prime = (3 * e_t - old_eps[-1]) / 2
+        # elif len(old_eps) == 2:
+        #     # 3nd order Pseudo Linear Multistep (Adams-Bashforth)
+        #     e_t_prime = (23 * e_t - 16 * old_eps[-1] + 5 * old_eps[-2]) / 12
+        # elif len(old_eps) >= 3:
+        #     # 4nd order Pseudo Linear Multistep (Adams-Bashforth)
+        #     e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
+        #
+        x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
 
         # latent_model_input = x
         # gradient = self.model.lgp_grad

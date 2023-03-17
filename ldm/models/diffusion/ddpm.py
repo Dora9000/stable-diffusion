@@ -1012,11 +1012,9 @@ class LatentDiffusion(DDPM):
         # t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
         # return self.p_losses(x, t, *args, **kwargs)
 
-        # orig_noisy = self.q_sample(x_start=x_noisy, t=t)
+        new_x_noisy = self.q_sample(x_start=torch.cat([orig] * 2), t=t)
 
-        print(orig.shape, x_noisy.shape)
-
-        res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
+        res = self.model(new_x_noisy, t, **cond)  # torch.Size([2, 4, 64, 64])
 
         activations = []
 
@@ -1031,11 +1029,7 @@ class LatentDiffusion(DDPM):
             "output_blocks_4",
             "output_blocks_8",
         ):
-            activations.append(global_hooks_map[key]) #.cpu().numpy()
-
-        # activations = [activations[0][0], activations[1][0], activations[2][0], activations[3][0], activations[4],
-        #                activations[5], activations[6], activations[7]]
-
+            activations.append(global_hooks_map[key])
 
         with torch.enable_grad():
             sketch_target = sketch_target.detach().requires_grad_(requires_grad=False)
@@ -1048,7 +1042,7 @@ class LatentDiffusion(DDPM):
 
             guiding_model.optimizer.zero_grad()
 
-            pred_edge_map = guiding_model(features, x_noisy-res)
+            pred_edge_map = guiding_model(features, new_x_noisy-res)
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
 
             # sketch_target = sketch_target.transpose(1, 3).flatten(start_dim=0, end_dim=3)
@@ -1059,6 +1053,11 @@ class LatentDiffusion(DDPM):
             guiding_model.loss.append(loss.item())
 
             guiding_model.eval()
+
+            # if guiding_model.is_log:
+            #     guiding_model.is_log = False
+            #     guiding_model.log_img = pred_edge_map
+            #     print(f'-------------- log with t: {t} ---------------')
 
 
             # pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
