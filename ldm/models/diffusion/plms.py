@@ -245,16 +245,18 @@ class PLMSSampler(object):
         #     # 4nd order Pseudo Linear Multistep (Adams-Bashforth)
         #     e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
 
-        if len(old_eps) < 1:
-            old_eps.append(torch.randn(e_t.shape, device=device))
+
+
+        # if len(old_eps) < 1:
+        #     old_eps.append(torch.randn(e_t.shape, device=device))
 
 
         if with_guidance:
-            edge_guidance_scale = 0.5  # betta
+            edge_guidance_scale = 0.3  # betta
 
-            alpha = (torch.linalg.norm(e_t - old_eps[-1])) / (torch.linalg.norm(gradient))
+            alpha = (torch.linalg.norm(e_t)) / (torch.linalg.norm(gradient))
             alpha = alpha * edge_guidance_scale
-            e_t = e_t + alpha * gradient# - torch.randn(e_t.shape, device=device)
+            e_t = e_t - alpha * gradient + torch.randn_like(alpha * gradient) # - torch.randn(e_t.shape, device=device)
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
 
