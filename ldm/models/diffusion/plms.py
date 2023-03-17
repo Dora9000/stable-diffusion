@@ -78,7 +78,6 @@ class PLMSSampler(object):
                log_every_t=100,
                unconditional_guidance_scale=1.,
                unconditional_conditioning=None,
-               is_train=False,
                sketch_img=None,
                # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                **kwargs
@@ -129,6 +128,21 @@ class PLMSSampler(object):
         else:
             img = x_T
 
+        # d = 0.3
+        # img = d * self.sketch_target + (1 - d) * torch.randn(shape, device=device)
+
+        # img = self.sketch_target
+        # img[img < 100] = 100
+        # img[img > 100] = 0
+        # img[img == 100] = 255
+        # img = torch.randn(shape, device=device) - self.sketch_target
+
+        # print(time_range)
+        #
+
+        # img = self.model.q_sample(x_start=self.sketch_target, t=torch.full((b,), 901, device=device, dtype=torch.long))
+        # img = img.detach().requires_grad_(requires_grad=True)
+
         if timesteps is None:
             timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
         elif timesteps is not None and not ddim_use_original_steps:
@@ -143,9 +157,11 @@ class PLMSSampler(object):
         iterator = tqdm(time_range, desc='PLMS Sampler', total=total_steps)
         old_eps = []
 
+
+
         for i, step in enumerate(iterator):
 
-            # if i > 15:
+            # if i >= 0:
             #     continue
 
             print('step ', i)
@@ -251,20 +267,36 @@ class PLMSSampler(object):
         #     old_eps.append(torch.randn(e_t.shape, device=device))
 
 
-        if with_guidance:
-            edge_guidance_scale = 0.3  # betta
-
-            alpha = (torch.linalg.norm(e_t)) / (torch.linalg.norm(gradient))
-            alpha = alpha * edge_guidance_scale
-            e_t = e_t - alpha * gradient + torch.randn_like(alpha * gradient) # - torch.randn(e_t.shape, device=device)
+        # if with_guidance:
+        #     edge_guidance_scale = 0.3  # betta
+        #
+        #     alpha = (torch.linalg.norm(e_t)) / (torch.linalg.norm(gradient))
+        #     alpha = alpha * edge_guidance_scale
+        #     e_t = e_t - alpha * gradient + torch.randn_like(alpha * gradient) # - torch.randn(e_t.shape, device=device)
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
 
-        # if with_guidance:
-        #     edge_guidance_scale = 0.99  # betta
-        #
-        #     alpha = (torch.linalg.norm(x - x_prev)) / (torch.linalg.norm(gradient))
-        #     alpha = alpha * edge_guidance_scale
-        #     x_prev = x_prev - alpha * gradient
+        print(x_prev.shape)
+
+        std_0, mean_0 = torch.std_mean(x_prev, dim=(2,3), keepdim=True)
+
+        self.guiding_model.log_img_orig.append(x_prev)  # DEBUG
+
+        if with_guidance:
+            edge_guidance_scale = 1.6  # betta
+
+            alpha = (torch.linalg.norm(x - x_prev)) / (torch.linalg.norm(gradient))
+            alpha = alpha * edge_guidance_scale
+            x_prev = x_prev - alpha * gradient
+
+            std_1, mean_1 = torch.std_mean(x_prev, dim=(2, 3), keepdim=True)
+
+            x_prev /= std_1
+            x_prev -= mean_1
+
+            x_prev += mean_0
+            x_prev *= std_0
+
+        self.guiding_model.log_img.append(x_prev)  # DEBUG
 
         return x_prev, pred_x0, e_t

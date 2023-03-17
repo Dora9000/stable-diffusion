@@ -954,7 +954,7 @@ class LatentDiffusion(DDPM):
             sim = criterion(pred_edge_map, sketch_target)
             gradient = torch.autograd.grad(sim, sketch_target)[0]
 
-            guiding_model.log_img = pred_edge_map  # DEBUG
+            # guiding_model.log_img_orig.append(pred_edge_map)  # DEBUG
 
         return e_pred, gradient
 
