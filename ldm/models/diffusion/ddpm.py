@@ -946,7 +946,7 @@ class LatentDiffusion(DDPM):
             e = e_pred.detach().requires_grad_(requires_grad=True)
             features = resize_and_concatenate(activations, e)
 
-            pred_edge_map = guiding_model(features, x_noisy-e_pred)# res?
+            pred_edge_map = guiding_model(features, e_pred[:1] * 0 + t[0])# x_noisy-e_pred
 
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
             pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)

@@ -128,7 +128,7 @@ class PLMSSampler(object):
         else:
             img = x_T
 
-        # d = 0.3
+        d = 0.2
         # img = d * self.sketch_target + (1 - d) * torch.randn(shape, device=device)
 
         # img = self.sketch_target
@@ -142,6 +142,20 @@ class PLMSSampler(object):
 
         # img = self.model.q_sample(x_start=self.sketch_target, t=torch.full((b,), 901, device=device, dtype=torch.long))
         # img = img.detach().requires_grad_(requires_grad=True)
+
+        img = torch.randn(shape, device=device)
+
+        std_0, mean_0 = torch.std_mean(img, dim=(2, 3), keepdim=True)
+
+        img = d * self.sketch_target + (1 - d) * img
+
+        std_1, mean_1 = torch.std_mean(img, dim=(2, 3), keepdim=True)
+
+        img /= std_1
+        img -= mean_1
+
+        img += mean_0
+        img *= std_0
 
         if timesteps is None:
             timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
@@ -180,7 +194,7 @@ class PLMSSampler(object):
                                       corrector_kwargs=corrector_kwargs,
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning,
-                                      old_eps=old_eps, t_next=ts_next, with_guidance=i < (total_steps // 2))
+                                      old_eps=old_eps, t_next=ts_next, with_guidance=i < (total_steps // 3))
             old_eps.append(e_t)
             if len(old_eps) >= 4:
                 old_eps.pop(0)
@@ -276,14 +290,12 @@ class PLMSSampler(object):
 
         x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
 
-        print(x_prev.shape)
-
-        std_0, mean_0 = torch.std_mean(x_prev, dim=(2,3), keepdim=True)
-
         self.guiding_model.log_img_orig.append(x_prev)  # DEBUG
 
         if with_guidance:
-            edge_guidance_scale = 1.6  # betta
+            std_0, mean_0 = torch.std_mean(x_prev, dim=(2, 3), keepdim=True)
+
+            edge_guidance_scale = 1.8  # betta
 
             alpha = (torch.linalg.norm(x - x_prev)) / (torch.linalg.norm(gradient))
             alpha = alpha * edge_guidance_scale
