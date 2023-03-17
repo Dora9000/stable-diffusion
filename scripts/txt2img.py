@@ -125,6 +125,7 @@ def main():
     parser.add_argument(
         "--skip_grid",
         action='store_true',
+        default=True,
         help="do not save a grid, only individual samples. Helpful when evaluating lots of samples",
     )
     parser.add_argument(
@@ -135,7 +136,7 @@ def main():
     parser.add_argument(
         "--ddim_steps",
         type=int,
-        default=10,
+        default=50,
         help="number of ddim sampling steps",
     )
     parser.add_argument(
@@ -204,7 +205,7 @@ def main():
     parser.add_argument(
         "--scale",
         type=float,
-        default=7.5,
+        default=8,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
     parser.add_argument(
@@ -367,6 +368,23 @@ def main():
 
                         if not opt.skip_grid:
                             all_samples.append(x_checked_image_torch)
+
+
+                        if sampler.guiding_model.log_img is not None:
+                            out = model.decode_first_stage(sampler.guiding_model.log_img)
+                            out = torch.clamp((out + 1.0) / 2.0, min=0.0, max=1.0)
+                            out = out.cpu().permute(0, 2, 3, 1).numpy()
+
+                            out, _ = check_safety(out)
+
+                            out = torch.from_numpy(out).permute(0, 3, 1, 2)
+
+                            if not opt.skip_save:
+                                for x_sample in out:
+                                    x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                                    img = Image.fromarray(x_sample.astype(np.uint8))
+                                    img = put_watermark(img, wm_encoder)
+                                    img.save(os.path.join(sample_path, f"{base_count - 1:05}-predicted_map.png"))
 
                 if not opt.skip_grid:
                     # additionally, save as grid

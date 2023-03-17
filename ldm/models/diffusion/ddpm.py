@@ -921,7 +921,7 @@ class LatentDiffusion(DDPM):
 
     def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target):
 
-        res = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
+        e_pred = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
         activations = []
 
@@ -938,22 +938,25 @@ class LatentDiffusion(DDPM):
         ):
             activations.append(global_hooks_map[key]) #.cpu().numpy()
 
-        # activations = [activations[0][0], activations[1][0], activations[2][0], activations[3][0], activations[4],
-        #                activations[5], activations[6], activations[7]]
         criterion = nn.MSELoss()
 
         with torch.enable_grad():
             sketch_target = sketch_target.detach().requires_grad_(requires_grad=True)
-            latents = res.detach().requires_grad_(requires_grad=True)
-            features = resize_and_concatenate(activations, latents)
-            pred_edge_map = guiding_model(features, x_noisy-res)
+
+            e = e_pred.detach().requires_grad_(requires_grad=True)
+            features = resize_and_concatenate(activations, e)
+
+            pred_edge_map = guiding_model(features, x_noisy-e_pred)# res?
+
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
             pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
 
             sim = criterion(pred_edge_map, sketch_target)
             gradient = torch.autograd.grad(sim, sketch_target)[0]
 
-        return res, gradient
+            guiding_model.log_img = pred_edge_map  # DEBUG
+
+        return e_pred, gradient
 
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):

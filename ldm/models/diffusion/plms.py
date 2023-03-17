@@ -144,15 +144,19 @@ class PLMSSampler(object):
         old_eps = []
 
         for i, step in enumerate(iterator):
+
+            # if i > 15:
+            #     continue
+
             print('step ', i)
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
             ts_next = torch.full((b,), time_range[min(i + 1, len(time_range) - 1)], device=device, dtype=torch.long)
 
-            if mask is not None:
-                assert x0 is not None
-                img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
-                img = img_orig * mask + (1. - mask) * img
+            # if mask is not None:
+            #     assert x0 is not None
+            #     img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
+            #     img = img_orig * mask + (1. - mask) * img
 
             img, pred_x0, e_t = self.p_sample_plms(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
                                       quantize_denoised=quantize_denoised, temperature=temperature,
@@ -224,31 +228,40 @@ class PLMSSampler(object):
             x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise
             return x_prev, pred_x0
 
-        e_t, _grad = get_model_output(x, t, with_grad=True)
+        e_t, gradient = get_model_output(x, t, with_grad=True)
 
-        if len(old_eps) == 0:
-            # Pseudo Improved Euler (2nd order)
-            x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
-            e_t_next = get_model_output(x_prev, t_next)
-            e_t_prime = (e_t + e_t_next) / 2
-        elif len(old_eps) == 1:
-            # 2nd order Pseudo Linear Multistep (Adams-Bashforth)
-            e_t_prime = (3 * e_t - old_eps[-1]) / 2
-        elif len(old_eps) == 2:
-            # 3nd order Pseudo Linear Multistep (Adams-Bashforth)
-            e_t_prime = (23 * e_t - 16 * old_eps[-1] + 5 * old_eps[-2]) / 12
-        elif len(old_eps) >= 3:
-            # 4nd order Pseudo Linear Multistep (Adams-Bashforth)
-            e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
+        # if len(old_eps) == 0:
+        #     # Pseudo Improved Euler (2nd order)
+        #     x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
+        #     e_t_next = get_model_output(x_prev, t_next)
+        #     e_t_prime = (e_t + e_t_next) / 2
+        # elif len(old_eps) == 1:
+        #     # 2nd order Pseudo Linear Multistep (Adams-Bashforth)
+        #     e_t_prime = (3 * e_t - old_eps[-1]) / 2
+        # elif len(old_eps) == 2:
+        #     # 3nd order Pseudo Linear Multistep (Adams-Bashforth)
+        #     e_t_prime = (23 * e_t - 16 * old_eps[-1] + 5 * old_eps[-2]) / 12
+        # elif len(old_eps) >= 3:
+        #     # 4nd order Pseudo Linear Multistep (Adams-Bashforth)
+        #     e_t_prime = (55 * e_t - 59 * old_eps[-1] + 37 * old_eps[-2] - 9 * old_eps[-3]) / 24
 
-        x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t_prime, index)
+        if len(old_eps) < 1:
+            old_eps.append(torch.randn(e_t.shape, device=device))
+
+
+        if with_guidance:
+            edge_guidance_scale = 0.5  # betta
+
+            alpha = (torch.linalg.norm(e_t - old_eps[-1])) / (torch.linalg.norm(gradient))
+            alpha = alpha * edge_guidance_scale
+            e_t = e_t + alpha * gradient# - torch.randn(e_t.shape, device=device)
+
+        x_prev, pred_x0 = get_x_prev_and_pred_x0(e_t, index)
 
         # if with_guidance:
-        #     latent_model_input = x
-        #     gradient = _grad
-        #     edge_guidance_scale = 1.0 # betta
+        #     edge_guidance_scale = 0.99  # betta
         #
-        #     alpha = (torch.linalg.norm(latent_model_input[:1] - x_prev)) / (torch.linalg.norm(gradient))
+        #     alpha = (torch.linalg.norm(x - x_prev)) / (torch.linalg.norm(gradient))
         #     alpha = alpha * edge_guidance_scale
         #     x_prev = x_prev - alpha * gradient
 
