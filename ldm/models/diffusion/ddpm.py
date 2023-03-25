@@ -39,7 +39,7 @@ global_hooks_map = {}
 def get_features(name):
     def hook(model, input, output):
 
-        global_hooks_map[name] = output.detach().float()
+        global_hooks_map[name] = output#.detach().float()
     return hook
 
 
@@ -920,43 +920,43 @@ class LatentDiffusion(DDPM):
 
 
     def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target):
-
-        e_pred = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
-
-        activations = []
-
-        for key in (
-            "input_blocks_2",
-            "input_blocks_4",
-            "input_blocks_8",
-            'middle_block_0',
-            'middle_block_1',
-            'middle_block_2',
-            "output_blocks_2",
-            "output_blocks_4",
-            "output_blocks_8",
-        ):
-            activations.append(global_hooks_map[key]) #.cpu().numpy()
-
-        criterion = nn.MSELoss()
-
         with torch.enable_grad():
+            x_noisy = x_noisy.detach().requires_grad_(requires_grad=True)
+
+            e_pred = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
+
+            if not guiding_model.with_guidance:
+                return e_pred.detach().requires_grad_(requires_grad=False), None
+
+            activations = []
+
+            for key in (
+                "input_blocks_2",
+                "input_blocks_4",
+                "input_blocks_8",
+                'middle_block_0',
+                'middle_block_1',
+                'middle_block_2',
+                "output_blocks_2",
+                "output_blocks_4",
+                "output_blocks_8",
+            ):
+                activations.append(global_hooks_map[key]) #.cpu().numpy()
+
+            criterion = nn.MSELoss()
+
             sketch_target = sketch_target.detach().requires_grad_(requires_grad=True)
-
-            e = e_pred.detach().requires_grad_(requires_grad=True)
-            features = resize_and_concatenate(activations, e)
-
-            pred_edge_map = guiding_model(features, e_pred[:1] * 0 + t[0])# x_noisy-e_pred
-
+            features = resize_and_concatenate(activations, e_pred)
+            pred_edge_map = guiding_model(features, e_pred[:1] * 0 + t[0])
             pred_edge_map = pred_edge_map.unflatten(0, (1, 64, 64)).transpose(3, 1)
-            pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
 
             sim = criterion(pred_edge_map, sketch_target)
-            gradient = torch.autograd.grad(sim, sketch_target)[0]
+            gradient = torch.autograd.grad(sim, x_noisy)[0][:1]
+
 
             # guiding_model.log_img_orig.append(pred_edge_map)  # DEBUG
 
-        return e_pred, gradient
+        return e_pred.detach().requires_grad_(requires_grad=False), gradient
 
 
     def _predict_eps_from_xstart(self, x_t, t, pred_xstart):

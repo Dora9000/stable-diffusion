@@ -27,6 +27,7 @@ class latent_guidance_predictor(nn.Module):
 
         self.log_img = []
         self.log_img_orig = []
+        self.with_guidance = True
 
 
     def forward(self, x, t):

@@ -90,13 +90,16 @@ def load_replacement(x):
 
 
 def check_safety(x_image):
-    safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
-    x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
-    assert x_checked_image.shape[0] == len(has_nsfw_concept)
+    #
+    # print('first',x_image)
+    # safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
+    # x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
+    # assert x_checked_image.shape[0] == len(has_nsfw_concept)
     # for i in range(len(has_nsfw_concept)):
     #     if has_nsfw_concept[i]:
     #         x_checked_image[i] = load_replacement(x_checked_image[i])
-    return x_checked_image, has_nsfw_concept
+    # print('second', x_checked_image)
+    return x_image, False
 
 
 def main():
@@ -205,7 +208,7 @@ def main():
     parser.add_argument(
         "--scale",
         type=float,
-        default=8,
+        default=7.5,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
     parser.add_argument(
@@ -369,23 +372,23 @@ def main():
                             all_samples.append(x_checked_image_torch)
 
                         # DEBUG
-                        # for tt, text in ((sampler.guiding_model.log_img, "log"), (sampler.guiding_model.log_img_orig, "log_orig")):
-                        #     for img in tt:
-                        #         out = model.decode_first_stage(img)
-                        #         out = torch.clamp((out + 1.0) / 2.0, min=0.0, max=1.0)
-                        #         out = out.cpu().permute(0, 2, 3, 1).numpy()
-                        #
-                        #         out, has_nsfw_concept = check_safety(out)
-                        #
-                        #         out = torch.from_numpy(out).permute(0, 3, 1, 2)
-                        #
-                        #         if not opt.skip_save and not has_nsfw_concept:
-                        #             for x_sample in out:
-                        #                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-                        #                 img = Image.fromarray(x_sample.astype(np.uint8))
-                        #                 img = put_watermark(img, wm_encoder)
-                        #                 img.save(os.path.join(sample_path, f"{base_count :05}-{text}.png"))
-                        #                 base_count += 1
+                        for tt, text in ((sampler.guiding_model.log_img, "log"), (sampler.guiding_model.log_img_orig, "log_orig")):
+                            for img in tt:
+                                out = model.decode_first_stage(img)
+                                out = torch.clamp((out + 1.0) / 2.0, min=0.0, max=1.0)
+                                out = out.cpu().permute(0, 2, 3, 1).numpy()
+
+                                out, has_nsfw_concept = check_safety(out)
+
+                                out = torch.from_numpy(out).permute(0, 3, 1, 2)
+
+                                #if not opt.skip_save and not has_nsfw_concept:
+                                for x_sample in out:
+                                    x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                                    img = Image.fromarray(x_sample.astype(np.uint8))
+                                    img = put_watermark(img, wm_encoder)
+                                    img.save(os.path.join(sample_path, f"{base_count :05}-{text}.png"))
+                                    base_count += 1
 
                 if not opt.skip_grid:
                     # additionally, save as grid
