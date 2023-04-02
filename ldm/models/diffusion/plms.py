@@ -147,10 +147,14 @@ class PLMSSampler(object):
         old_eps = []
 
         steps = list(enumerate(time_range))
-        steps = steps[:len(steps) // 2]
+        steps = steps[:len(steps)]
 
-        for _ in range(10):
+        for ii in range(20):
             i, step = random.choice(steps)
+
+
+            if ii == 19 and self.guiding_model.is_log:
+                i, step = steps[-1]
 
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)

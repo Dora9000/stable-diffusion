@@ -91,13 +91,13 @@ def load_replacement(x):
 
 
 def check_safety(x_image):
-    safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
-    x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
-    assert x_checked_image.shape[0] == len(has_nsfw_concept)
+    # safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
+    # x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
+    # assert x_checked_image.shape[0] == len(has_nsfw_concept)
     # for i in range(len(has_nsfw_concept)):
     #     if has_nsfw_concept[i]:
     #         x_checked_image[i] = load_replacement(x_checked_image[i])
-    return x_checked_image, False
+    return x_image, False
 
 
 def main():
@@ -261,7 +261,7 @@ def main():
     # torch.Size([1, 4, 48, 112])
 
     # model_path = "models/lgp/model.pt"
-    model_path = "/workspace/stable-diffusion/models/lgp/my_model/model2" + '.pt'
+    model_path = "/workspace/stable-diffusion/models/lgp/my_model/model3" + '.pt'
 
     guiding_model = latent_guidance_predictor(output_dim=4, input_dim=9320, num_encodings=9).to(device)  # 7080
     # guiding_model.init_weights()
@@ -345,7 +345,7 @@ def main():
         precision_scope = autocast if opt.precision=="autocast" else nullcontext
 
         # DEBUG
-        if ii % 50 == 0:
+        if ii % 10 == 0:
 
             print(f'============== log {ii} ================= ')
             sampler.guiding_model.is_log = True
@@ -428,6 +428,7 @@ def main():
 
         # DEBUG
         if sampler.guiding_model.log_img is not None:
+            sampler.guiding_model.is_log = False
             precision_scope = autocast if opt.precision == "autocast" else nullcontext
 
             with torch.no_grad():
@@ -448,7 +449,7 @@ def main():
                             img = Image.fromarray(x_sample.astype(np.uint8))
                             img = put_watermark(img, wm_encoder)
                             print(image_path)
-                            img.save(os.path.join(sample_path, f"{base_count:05}-{sampler.guiding_model.ts}.png"))
+                            img.save(os.path.join(sample_path, f"{base_count:05}-{image_path.split('/')[-1].split('.')[0]}.png"))
                             base_count += 1
 
 

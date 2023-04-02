@@ -1009,37 +1009,32 @@ class LatentDiffusion(DDPM):
 
 
     def _save_features_and_predict(self, x_noisy, t, cond, guiding_model, sketch_target, orig):
-        # t = torch.randint(0, self.num_timesteps, (x.shape[0],), device=self.device).long()
-        # return self.p_losses(x, t, *args, **kwargs)
-
-        new_x_noisy = self.q_sample(x_start=torch.cat([orig] * 2), t=t)
-
-        e_pred = self.model(new_x_noisy, t, **cond)  # torch.Size([2, 4, 64, 64])
-
-        activations = []
-
-        for key in (
-            "input_blocks_2",
-            "input_blocks_4",
-            "input_blocks_8",
-            'middle_block_0',
-            'middle_block_1',
-            'middle_block_2',
-            "output_blocks_2",
-            "output_blocks_4",
-            "output_blocks_8",
-        ):
-            activations.append(global_hooks_map[key])
-
         with torch.enable_grad():
-            sketch_target = sketch_target.detach().requires_grad_(requires_grad=False)
-            e = e_pred.detach().requires_grad_(requires_grad=False)
-            features = resize_and_concatenate(activations, e)
 
-            guiding_model.train()
+            new_x_noisy = self.q_sample(x_start=torch.cat([orig] * 2), t=t).detach().requires_grad_(requires_grad=True)
+
+            e_pred = self.model(new_x_noisy, t, **cond)  # torch.Size([2, 4, 64, 64])
+
+            activations = []
+
+            for key in (
+                "input_blocks_2",
+                "input_blocks_4",
+                "input_blocks_8",
+                'middle_block_0',
+                'middle_block_1',
+                'middle_block_2',
+                "output_blocks_2",
+                "output_blocks_4",
+                "output_blocks_8",
+            ):
+                activations.append(global_hooks_map[key])
 
             criterion = nn.MSELoss()
+            sketch_target = sketch_target.detach().requires_grad_(requires_grad=True)
+            features = resize_and_concatenate(activations, e_pred)
 
+            guiding_model.train()
             guiding_model.optimizer.zero_grad()
 
             pred_edge_map = guiding_model(features, e_pred[:1] * 0 + t[0])
@@ -1055,9 +1050,8 @@ class LatentDiffusion(DDPM):
             guiding_model.eval()
 
             if guiding_model.is_log:
-                guiding_model.is_log = False
                 guiding_model.log_img = pred_edge_map
-                self.ts = t
+                # self.ts = t
 
 
             # pred_edge_map = pred_edge_map.detach().requires_grad_(requires_grad=True)
