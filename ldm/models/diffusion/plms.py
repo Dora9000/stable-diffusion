@@ -155,7 +155,6 @@ class PLMSSampler(object):
         old_eps = []
 
         for i, step in enumerate(iterator):
-
             print('step ', i)
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
@@ -264,13 +263,13 @@ class PLMSSampler(object):
         if with_guidance:
             # std_0, mean_0 = torch.std_mean(x_prev, dim=(2, 3), keepdim=True)
 
-            edge_guidance_scale = 0.7  # betta
+            edge_guidance_scale = 0.8  # betta
 
             alpha = (torch.linalg.norm(x - x_prev)) / (torch.linalg.norm(gradient))
             alpha = alpha * edge_guidance_scale
 
-            print('grad', torch.linalg.norm(alpha * gradient))
-            print('x_prev', torch.linalg.norm(x_prev))
+            # print('grad', torch.linalg.norm(alpha * gradient))
+            # print('x_prev', torch.linalg.norm(x_prev))
 
             x_prev = x_prev - alpha * gradient
 
