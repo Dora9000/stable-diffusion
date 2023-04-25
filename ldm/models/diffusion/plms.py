@@ -6,6 +6,7 @@ from tqdm import tqdm
 from functools import partial
 
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like
+from rabbitmq.producer import StatusProducer
 
 
 class PLMSSampler(object):
@@ -57,10 +58,11 @@ class PLMSSampler(object):
         self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
 
     @torch.no_grad()
-    def sample(self,
+    async def sample(self,
                S,
                batch_size,
                shape,
+               generation_message_id: str,
                conditioning=None,
                callback=None,
                normals_sequence=None,
@@ -97,7 +99,7 @@ class PLMSSampler(object):
         size = (batch_size, C, H, W) # 3,4,64,64
         print(f'Data shape for PLMS sampling is {size}')
 
-        samples, intermediates = self.plms_sampling(conditioning, size,
+        samples, intermediates = await self.plms_sampling(conditioning, size,
                                                     callback=callback,
                                                     img_callback=img_callback,
                                                     quantize_denoised=quantize_x0,
@@ -111,11 +113,12 @@ class PLMSSampler(object):
                                                     log_every_t=log_every_t,
                                                     unconditional_guidance_scale=unconditional_guidance_scale,
                                                     unconditional_conditioning=unconditional_conditioning,
+                                                    generation_message_id=generation_message_id,
                                                     )
         return samples, intermediates
 
     @torch.no_grad()
-    def plms_sampling(self, cond, shape,
+    async def plms_sampling(self, cond, shape, generation_message_id: str,
                       x_T=None, ddim_use_original_steps=False,
                       callback=None, timesteps=None, quantize_denoised=False,
                       mask=None, x0=None, img_callback=None, log_every_t=100,
@@ -155,6 +158,10 @@ class PLMSSampler(object):
         old_eps = []
 
         for i, step in enumerate(iterator):
+
+            if i in (10, 20, 30, 40):
+                await StatusProducer().send(data={"generation_message_id": generation_message_id, "percent": int(100 * i / len(time_range))})
+
             print('step ', i)
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)

@@ -925,9 +925,6 @@ class LatentDiffusion(DDPM):
 
             e_pred = self.model(x_noisy, t, **cond) # torch.Size([2, 4, 64, 64])
 
-            if not guiding_model.with_guidance:
-                return e_pred.detach().requires_grad_(requires_grad=False), None
-
             activations = []
 
             for key in (
@@ -941,7 +938,7 @@ class LatentDiffusion(DDPM):
                 "output_blocks_4",
                 "output_blocks_8",
             ):
-                activations.append(global_hooks_map[key]) #.cpu().numpy()
+                activations.append(global_hooks_map[key])
 
             criterion = nn.MSELoss()
 
@@ -952,9 +949,6 @@ class LatentDiffusion(DDPM):
 
             sim = criterion(pred_edge_map, sketch_target)
             gradient = torch.autograd.grad(sim, x_noisy)[0][:1]
-
-
-            # guiding_model.log_img_orig.append(pred_edge_map)  # DEBUG
 
         return e_pred.detach().requires_grad_(requires_grad=False), gradient
 
