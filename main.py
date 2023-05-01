@@ -13,7 +13,7 @@ from ldm.util import instantiate_from_config
 from rabbitmq.consumer import GenerationConsumer
 from rabbitmq.settings import RabbitmqData
 from rabbitmq.storage import GenerationStorage
-import generation_settings as settings
+import settings
 
 
 def load_model_from_config(config, ckpt, verbose=False):
@@ -79,10 +79,9 @@ def initialize():
 
 async def on_message(service: GenerationConsumer, message, model, guiding_model) -> None:
     body = json.loads(message.body)
-    print(body)
     message_id = body.pop("message_id")
     print(f"Received message with message_id={message_id}")
-    await service.react_message(message=body, model=model, guiding_model=guiding_model, generation_message_id=message_id)
+    await service.react_message(message=body, model=model, guiding_model=guiding_model)
     print(f"Message with message_id={message_id} has been processed")
     await message.ack()
     print(f"Message with message_id={message_id} was confirmed")

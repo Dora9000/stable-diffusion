@@ -58,32 +58,35 @@ class PLMSSampler(object):
         self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
 
     @torch.no_grad()
-    async def sample(self,
-               S,
-               batch_size,
-               shape,
-               generation_message_id: str,
-               conditioning=None,
-               callback=None,
-               normals_sequence=None,
-               img_callback=None,
-               quantize_x0=False,
-               eta=0.,
-               mask=None,
-               x0=None,
-               temperature=1.,
-               noise_dropout=0.,
-               score_corrector=None,
-               corrector_kwargs=None,
-               verbose=True,
-               x_T=None,
-               log_every_t=100,
-               unconditional_guidance_scale=1.,
-               unconditional_conditioning=None,
-               sketch_img=None,
-               # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
-               **kwargs
-               ):
+    async def sample(
+        self,
+        S,
+        batch_size,
+        shape,
+        init_k,
+        grad_k,
+        queue_data: dict,
+        conditioning=None,
+        callback=None,
+        normals_sequence=None,
+        img_callback=None,
+        quantize_x0=False,
+        eta=0.,
+        mask=None,
+        x0=None,
+        temperature=1.,
+        noise_dropout=0.,
+        score_corrector=None,
+        corrector_kwargs=None,
+        verbose=True,
+        x_T=None,
+        log_every_t=100,
+        unconditional_guidance_scale=1.,
+        unconditional_conditioning=None,
+        sketch_img=None,
+        # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
+        **kwargs
+    ):
         if conditioning is not None:
             if isinstance(conditioning, dict):
                 cbs = conditioning[list(conditioning.keys())[0]].shape[0]
@@ -99,26 +102,29 @@ class PLMSSampler(object):
         size = (batch_size, C, H, W) # 3,4,64,64
         print(f'Data shape for PLMS sampling is {size}')
 
-        samples, intermediates = await self.plms_sampling(conditioning, size,
-                                                    callback=callback,
-                                                    img_callback=img_callback,
-                                                    quantize_denoised=quantize_x0,
-                                                    mask=mask, x0=x0,
-                                                    ddim_use_original_steps=False,
-                                                    noise_dropout=noise_dropout,
-                                                    temperature=temperature,
-                                                    score_corrector=score_corrector,
-                                                    corrector_kwargs=corrector_kwargs,
-                                                    x_T=x_T,
-                                                    log_every_t=log_every_t,
-                                                    unconditional_guidance_scale=unconditional_guidance_scale,
-                                                    unconditional_conditioning=unconditional_conditioning,
-                                                    generation_message_id=generation_message_id,
-                                                    )
+        samples, intermediates = await self.plms_sampling(
+            conditioning, size,
+            callback=callback,
+            img_callback=img_callback,
+            quantize_denoised=quantize_x0,
+            mask=mask, x0=x0,
+            ddim_use_original_steps=False,
+            noise_dropout=noise_dropout,
+            temperature=temperature,
+            score_corrector=score_corrector,
+            corrector_kwargs=corrector_kwargs,
+            x_T=x_T,
+            log_every_t=log_every_t,
+            unconditional_guidance_scale=unconditional_guidance_scale,
+            unconditional_conditioning=unconditional_conditioning,
+            queue_data=queue_data,
+            init_k=init_k,
+            grad_k=grad_k,
+        )
         return samples, intermediates
 
     @torch.no_grad()
-    async def plms_sampling(self, cond, shape, generation_message_id: str,
+    async def plms_sampling(self, cond, shape, queue_data: dict, init_k, grad_k,
                       x_T=None, ddim_use_original_steps=False,
                       callback=None, timesteps=None, quantize_denoised=False,
                       mask=None, x0=None, img_callback=None, log_every_t=100,
@@ -131,7 +137,7 @@ class PLMSSampler(object):
         else:
             img = x_T
 
-        d = 0.2
+        d = init_k
         img = torch.randn(shape, device=device)
         std_0, mean_0 = torch.std_mean(img, dim=(2, 3), keepdim=True)
         img = d * self.sketch_target + (1 - d) * img
@@ -159,8 +165,8 @@ class PLMSSampler(object):
 
         for i, step in enumerate(iterator):
 
-            if i in (10, 20, 30, 40):
-                await StatusProducer().send(data={"generation_message_id": generation_message_id, "percent": int(100 * i / len(time_range))})
+            if i in (5, 10, 15, 20, 25, 30, 35, 40, 45):
+                await StatusProducer().send(data={**queue_data, "percent": int(100 * i / len(time_range))})
 
             print('step ', i)
             index = total_steps - i - 1
@@ -178,7 +184,7 @@ class PLMSSampler(object):
                                       corrector_kwargs=corrector_kwargs,
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning,
-                                      old_eps=old_eps, t_next=ts_next, with_guidance=i < (total_steps // 2))
+                                      old_eps=old_eps, t_next=ts_next, with_guidance=i < (total_steps // 2), grad_k=grad_k)
             old_eps.append(e_t)
             if len(old_eps) >= 4:
                 old_eps.pop(0)
@@ -192,7 +198,7 @@ class PLMSSampler(object):
         return img, intermediates
 
     @torch.no_grad()
-    def p_sample_plms(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
+    def p_sample_plms(self, x, c, t, index, grad_k, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None, old_eps=None, t_next=None, with_guidance=False):
         b, *_, device = *x.shape, x.device
@@ -270,7 +276,7 @@ class PLMSSampler(object):
         if with_guidance:
             # std_0, mean_0 = torch.std_mean(x_prev, dim=(2, 3), keepdim=True)
 
-            edge_guidance_scale = 0.8  # betta
+            edge_guidance_scale = grad_k# 0.8  # betta
 
             alpha = (torch.linalg.norm(x - x_prev)) / (torch.linalg.norm(gradient))
             alpha = alpha * edge_guidance_scale

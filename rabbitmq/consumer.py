@@ -11,7 +11,7 @@ from einops import repeat
 from ldm.models.diffusion.plms import PLMSSampler
 from rabbitmq.producer import StatusProducer
 from scripts.img2img import load_img
-import generation_settings as settings
+import settings
 
 
 def put_watermark(img, wm_encoder=None):
@@ -25,11 +25,15 @@ def put_watermark(img, wm_encoder=None):
 class GenerationConsumer:
 
     @classmethod
-    async def react_message(cls, model, guiding_model, message: dict, generation_message_id: str) -> None:
+    async def react_message(cls, model, guiding_model, message: dict) -> None:
         file_name = message["file_name"]
+        file_name = f"inputs/{file_name}"
         file_id = message["file_id"]
         prompt = message["prompt"]
         prompt = [prompt]
+
+        init_k = float(message["init_k"])
+        grad_k = float(message["grad_k"])
 
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -66,7 +70,12 @@ class GenerationConsumer:
                         eta=settings.DDIM_ETA,
                         x_T=None,
                         sketch_img=init_latent,
-                        generation_message_id=generation_message_id,
+                        init_k=init_k,
+                        grad_k=grad_k,
+                        queue_data={
+                            'reply_chat_id': message["reply_chat_id"],
+                            'reply_message_id': message["reply_message_id"],
+                        }
                     )
 
                     x_samples_ddim = model.decode_first_stage(samples_ddim)
@@ -82,6 +91,13 @@ class GenerationConsumer:
                             img = put_watermark(img, wm_encoder)
                             img.save(os.path.join(os.path.join(settings.OUTDIR, "samples"), f"{file_id}-generated.png"))
 
-        await StatusProducer().send(data={"generation_message_id": generation_message_id, "percent": 100})
+        await StatusProducer().send(
+            data={
+                "percent": 100,
+                "file_name": f"{file_id}-generated.png",
+                'reply_chat_id': message["reply_chat_id"],
+                'reply_message_id': message["reply_message_id"],
+            }
+        )
         print('done!')
 

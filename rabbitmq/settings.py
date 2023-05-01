@@ -1,12 +1,13 @@
 import os
+import settings
 
 
 class RabbitmqData:
     class BaseData:
-        login = os.getenv("RABBITMQ_LOGIN", "admin")
-        host = os.getenv("RABBITMQ_HOST", "194.26.196.6")
-        password = os.getenv("RABBITMQ_PASSWORD", "password")
-        port = 55075
+        login = settings.RABBITMQ_LOGIN
+        host = settings.RABBITMQ_HOST
+        password = settings.RABBITMQ_PASSWORD
+        port = settings.RABBITMQ_PORT
         virtualhost = ""
         ssl = False
 
